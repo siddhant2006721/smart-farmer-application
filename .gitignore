@@ -29,3 +29,4 @@ ios/Flutter/ephemeral/
 
 # Firebase local cache
 .firebase/
+**/node_modules/
