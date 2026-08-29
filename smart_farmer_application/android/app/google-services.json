@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "347294687654",
+    "project_id": "kisan-mitra-2156f",
+    "storage_bucket": "kisan-mitra-2156f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:347294687654:android:974d68c338a6c63728ef67",
+        "android_client_info": {
+          "package_name": "com.example.kisan_mitra"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUzHhgK_uIOq2-PixbwpuHnIiaukZgz3g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:347294687654:android:3cbc9dd3cf0259f428ef67",
+        "android_client_info": {
+          "package_name": "com.example.smart_farmer_application"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUzHhgK_uIOq2-PixbwpuHnIiaukZgz3g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
