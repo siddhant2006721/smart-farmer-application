@@ -235,6 +235,7 @@ class WeatherData {
   final double minTempToday;
   final double maxTempToday;
   final String locationName;
+  final bool hasFarmerLocation;
   final List<HourlyForecast> hourly;
   final List<DailyForecast> daily;
 
@@ -254,6 +255,7 @@ class WeatherData {
     required this.minTempToday,
     required this.maxTempToday,
     required this.locationName,
+    this.hasFarmerLocation = true,
     this.hourly = const [],
     this.daily = const [],
   });
@@ -402,6 +404,7 @@ class WeatherData {
         'minTempToday': minTempToday,
         'maxTempToday': maxTempToday,
         'locationName': locationName,
+        'hasFarmerLocation': hasFarmerLocation,
         'hourly': hourly.map((e) => e.toJson()).toList(),
         'daily': daily.map((e) => e.toJson()).toList(),
       };
@@ -424,6 +427,7 @@ class WeatherData {
         minTempToday: (json['minTempToday'] as num?)?.toDouble() ?? 0.0,
         maxTempToday: (json['maxTempToday'] as num?)?.toDouble() ?? 0.0,
         locationName: json['locationName']?.toString() ?? '',
+        hasFarmerLocation: json['hasFarmerLocation'] as bool? ?? true,
         hourly: (json['hourly'] as List?)
                 ?.map((e) =>
                     HourlyForecast.fromJson(Map<String, dynamic>.from(e)))
@@ -454,9 +458,42 @@ class WeatherService {
     }
   }
 
+  static Future<Map<String, dynamic>?> _geocodeQuery(String query) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return null;
+    try {
+      final geoUrl = Uri.parse(
+        'https://geocoding-api.open-meteo.com/v1/search?name=${Uri.encodeComponent(clean)}&count=1&language=en&format=json',
+      );
+
+      final geoRes =
+          await http.get(geoUrl).timeout(const Duration(seconds: 8));
+
+      if (geoRes.statusCode == 200) {
+        final geoData = jsonDecode(geoRes.body);
+        final results = geoData['results'] as List?;
+        if (results != null && results.isNotEmpty) {
+          final first = results[0];
+          final lat = (first['latitude'] as num?)?.toDouble();
+          final lon = (first['longitude'] as num?)?.toDouble();
+          final name = first['name']?.toString() ?? clean;
+          if (lat != null && lon != null) {
+            return {'lat': lat, 'lon': lon, 'name': name};
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('WeatherService: Geocoding error for "$query": $e');
+    }
+    return null;
+  }
+
   static Future<WeatherData?> fetchWeatherForUser(String? userId) async {
-    String locationQuery = 'Maharashtra';
-    String displayLocation = '';
+    String village = '';
+    String taluka = '';
+    String district = '';
+    String state = '';
+    bool hasFarmerLocation = false;
 
     // 1. Fetch farmer location from Firestore
     if (userId != null) {
@@ -468,22 +505,16 @@ class WeatherService {
 
         if (doc.exists && doc.data() != null) {
           final data = doc.data()!;
-          final district = data['district']?.toString().trim() ?? '';
-          final state = data['state']?.toString().trim() ?? '';
-          final village = data['village']?.toString().trim() ?? '';
+          village = data['village']?.toString().trim() ?? '';
+          taluka = data['taluka']?.toString().trim() ?? '';
+          district = data['district']?.toString().trim() ?? '';
+          state = data['state']?.toString().trim() ?? '';
 
-          if (district.isNotEmpty && state.isNotEmpty) {
-            locationQuery = '$district, $state';
-            displayLocation = district;
-          } else if (district.isNotEmpty) {
-            locationQuery = district;
-            displayLocation = district;
-          } else if (village.isNotEmpty && state.isNotEmpty) {
-            locationQuery = '$village, $state';
-            displayLocation = village;
-          } else if (state.isNotEmpty) {
-            locationQuery = state;
-            displayLocation = state;
+          if (village.isNotEmpty ||
+              taluka.isNotEmpty ||
+              district.isNotEmpty ||
+              state.isNotEmpty) {
+            hasFarmerLocation = true;
           }
         }
       } catch (e) {
@@ -491,40 +522,101 @@ class WeatherService {
       }
     }
 
-    // 2. Geocode location via Open-Meteo Geocoding API
+    // 2. Geocode location via Open-Meteo Geocoding API with multi-tier fallback
     double? lat;
     double? lon;
+    String displayLocation = '';
 
-    try {
-      final geoUrl = Uri.parse(
-        'https://geocoding-api.open-meteo.com/v1/search?name=${Uri.encodeComponent(locationQuery)}&count=1&language=en&format=json',
-      );
-
-      final geoRes =
-          await http.get(geoUrl).timeout(const Duration(seconds: 8));
-
-      if (geoRes.statusCode == 200) {
-        final geoData = jsonDecode(geoRes.body);
-        final results = geoData['results'] as List?;
-        if (results != null && results.isNotEmpty) {
-          final first = results[0];
-          lat = (first['latitude'] as num).toDouble();
-          lon = (first['longitude'] as num).toDouble();
-          if (displayLocation.isEmpty) {
-            displayLocation = first['name']?.toString() ?? locationQuery;
-          }
+    // Step A: Try Village with District or alone
+    if (village.isNotEmpty) {
+      if (district.isNotEmpty) {
+        final res = await _geocodeQuery('$village, $district');
+        if (res != null) {
+          lat = res['lat'];
+          lon = res['lon'];
+          displayLocation = '$village, $district';
         }
       }
-    } catch (e) {
-      debugPrint('WeatherService: Geocoding error: $e');
+      if (lat == null) {
+        final res = await _geocodeQuery(village);
+        if (res != null) {
+          lat = res['lat'];
+          lon = res['lon'];
+          displayLocation = district.isNotEmpty ? '$village, $district' : village;
+        }
+      }
     }
 
-    // Fallback coordinates (Maharashtra / Central India)
+    // Step B: Fallback to Taluka if village geocoding failed
+    if (lat == null && taluka.isNotEmpty) {
+      if (district.isNotEmpty) {
+        final res = await _geocodeQuery('$taluka, $district');
+        if (res != null) {
+          lat = res['lat'];
+          lon = res['lon'];
+          displayLocation = '$taluka, $district';
+        }
+      }
+      if (lat == null) {
+        final res = await _geocodeQuery(taluka);
+        if (res != null) {
+          lat = res['lat'];
+          lon = res['lon'];
+          displayLocation = district.isNotEmpty ? '$taluka, $district' : taluka;
+        }
+      }
+    }
+
+    // Step C: Fallback to District if village and taluka failed
+    if (lat == null && district.isNotEmpty) {
+      if (state.isNotEmpty) {
+        final res = await _geocodeQuery('$district, $state');
+        if (res != null) {
+          lat = res['lat'];
+          lon = res['lon'];
+          displayLocation = '$district, $state';
+        }
+      }
+      if (lat == null) {
+        final res = await _geocodeQuery(district);
+        if (res != null) {
+          lat = res['lat'];
+          lon = res['lon'];
+          displayLocation = district;
+        }
+      }
+    }
+
+    // Step D: Fallback to State if district failed
+    if (lat == null && state.isNotEmpty) {
+      final res = await _geocodeQuery('$state, India');
+      if (res != null) {
+        lat = res['lat'];
+        lon = res['lon'];
+        displayLocation = state;
+      } else {
+        final res2 = await _geocodeQuery(state);
+        if (res2 != null) {
+          lat = res2['lat'];
+          lon = res2['lon'];
+          displayLocation = state;
+        }
+      }
+    }
+
+    // Step E: Default fallback (Maharashtra / Central India coordinates)
     if (lat == null || lon == null) {
       lat = 19.7515;
       lon = 75.7139;
       if (displayLocation.isEmpty) {
-        displayLocation = locationQuery;
+        if (hasFarmerLocation) {
+          displayLocation = [village, district, state]
+              .where((s) => s.isNotEmpty)
+              .join(', ');
+          if (displayLocation.isEmpty) displayLocation = 'Maharashtra';
+        } else {
+          displayLocation = 'Maharashtra';
+        }
       }
     }
 
@@ -551,21 +643,54 @@ class WeatherService {
         if (current != null) {
           // Parse hourly forecast (next 24 hours from current time)
           final List<HourlyForecast> hourlyList = [];
-          if (hourlyData != null && hourlyData['time'] != null) {
+          if (hourlyData != null && hourlyData['time'] is List) {
             final List times = hourlyData['time'];
-            final List temps = hourlyData['temperature_2m'] ?? [];
-            final List codes = hourlyData['weather_code'] ?? [];
-            final List pops = hourlyData['precipitation_probability'] ?? [];
+            final List temps = (hourlyData['temperature_2m'] is List)
+                ? hourlyData['temperature_2m']
+                : [];
+            final List codes = (hourlyData['weather_code'] is List)
+                ? hourlyData['weather_code']
+                : [];
+            final List pops = (hourlyData['precipitation_probability'] is List)
+                ? hourlyData['precipitation_probability']
+                : [];
 
             final now = DateTime.now();
             for (int i = 0; i < times.length && hourlyList.length < 24; i++) {
-              final dt = DateTime.tryParse(times[i].toString());
-              if (dt != null && dt.isAfter(now.subtract(const Duration(hours: 1)))) {
+              final dt = DateTime.tryParse(times[i]?.toString() ?? '');
+              if (dt != null &&
+                  dt.isAfter(now.subtract(const Duration(hours: 1)))) {
                 hourlyList.add(HourlyForecast(
                   time: dt,
-                  temperature: (temps.length > i ? (temps[i] as num).toDouble() : 0.0),
-                  weatherCode: (codes.length > i ? (codes[i] as num).toInt() : 0),
-                  precipitationProbability: (pops.length > i ? (pops[i] as num).toInt() : 0),
+                  temperature: (temps.length > i && temps[i] != null
+                      ? (temps[i] as num).toDouble()
+                      : 0.0),
+                  weatherCode: (codes.length > i && codes[i] != null
+                      ? (codes[i] as num).toInt()
+                      : 0),
+                  precipitationProbability: (pops.length > i && pops[i] != null
+                      ? (pops[i] as num).toInt()
+                      : 0),
+                ));
+              }
+            }
+
+            // Fallback if timestamp filtering resulted in empty list
+            if (hourlyList.isEmpty) {
+              for (int i = 0; i < times.length && i < 24; i++) {
+                final dt = DateTime.tryParse(times[i]?.toString() ?? '') ??
+                    DateTime.now().add(Duration(hours: i));
+                hourlyList.add(HourlyForecast(
+                  time: dt,
+                  temperature: (temps.length > i && temps[i] != null
+                      ? (temps[i] as num).toDouble()
+                      : 0.0),
+                  weatherCode: (codes.length > i && codes[i] != null
+                      ? (codes[i] as num).toInt()
+                      : 0),
+                  precipitationProbability: (pops.length > i && pops[i] != null
+                      ? (pops[i] as num).toInt()
+                      : 0),
                 ));
               }
             }
@@ -573,30 +698,58 @@ class WeatherService {
 
           // Parse 7-day daily forecast
           final List<DailyForecast> dailyList = [];
-          double minToday = 0.0;
-          double maxToday = 0.0;
+          double minToday =
+              (current['temperature_2m'] as num?)?.toDouble() ?? 0.0;
+          double maxToday =
+              (current['temperature_2m'] as num?)?.toDouble() ?? 0.0;
           String sunriseToday = '';
           String sunsetToday = '';
           int maxPopToday = 0;
 
-          if (dailyData != null && dailyData['time'] != null) {
+          if (dailyData != null && dailyData['time'] is List) {
             final List dTimes = dailyData['time'];
-            final List dCodes = dailyData['weather_code'] ?? [];
-            final List dMaxTemps = dailyData['temperature_2m_max'] ?? [];
-            final List dMinTemps = dailyData['temperature_2m_min'] ?? [];
-            final List dPrecipSums = dailyData['precipitation_sum'] ?? [];
-            final List dPrecipPops = dailyData['precipitation_probability_max'] ?? [];
-            final List dSunrises = dailyData['sunrise'] ?? [];
-            final List dSunsets = dailyData['sunset'] ?? [];
-            final List dUvs = dailyData['uv_index_max'] ?? [];
+            final List dCodes = (dailyData['weather_code'] is List)
+                ? dailyData['weather_code']
+                : [];
+            final List dMaxTemps = (dailyData['temperature_2m_max'] is List)
+                ? dailyData['temperature_2m_max']
+                : [];
+            final List dMinTemps = (dailyData['temperature_2m_min'] is List)
+                ? dailyData['temperature_2m_min']
+                : [];
+            final List dPrecipSums = (dailyData['precipitation_sum'] is List)
+                ? dailyData['precipitation_sum']
+                : [];
+            final List dPrecipPops =
+                (dailyData['precipitation_probability_max'] is List)
+                    ? dailyData['precipitation_probability_max']
+                    : [];
+            final List dSunrises =
+                (dailyData['sunrise'] is List) ? dailyData['sunrise'] : [];
+            final List dSunsets =
+                (dailyData['sunset'] is List) ? dailyData['sunset'] : [];
+            final List dUvs = (dailyData['uv_index_max'] is List)
+                ? dailyData['uv_index_max']
+                : [];
 
             for (int i = 0; i < dTimes.length && i < 7; i++) {
-              final dDt = DateTime.tryParse(dTimes[i].toString()) ?? DateTime.now().add(Duration(days: i));
-              final maxT = dMaxTemps.length > i ? (dMaxTemps[i] as num).toDouble() : 0.0;
-              final minT = dMinTemps.length > i ? (dMinTemps[i] as num).toDouble() : 0.0;
-              final sRise = dSunrises.length > i ? formatIsoTime(dSunrises[i].toString()) : '';
-              final sSet = dSunsets.length > i ? formatIsoTime(dSunsets[i].toString()) : '';
-              final pop = dPrecipPops.length > i ? (dPrecipPops[i] as num).toInt() : 0;
+              final dDt = DateTime.tryParse(dTimes[i]?.toString() ?? '') ??
+                  DateTime.now().add(Duration(days: i));
+              final maxT = (dMaxTemps.length > i && dMaxTemps[i] != null)
+                  ? (dMaxTemps[i] as num).toDouble()
+                  : 0.0;
+              final minT = (dMinTemps.length > i && dMinTemps[i] != null)
+                  ? (dMinTemps[i] as num).toDouble()
+                  : 0.0;
+              final sRise = (dSunrises.length > i && dSunrises[i] != null)
+                  ? formatIsoTime(dSunrises[i].toString())
+                  : '';
+              final sSet = (dSunsets.length > i && dSunsets[i] != null)
+                  ? formatIsoTime(dSunsets[i].toString())
+                  : '';
+              final pop = (dPrecipPops.length > i && dPrecipPops[i] != null)
+                  ? (dPrecipPops[i] as num).toInt()
+                  : 0;
 
               if (i == 0) {
                 minToday = minT;
@@ -608,14 +761,20 @@ class WeatherService {
 
               dailyList.add(DailyForecast(
                 date: dDt,
-                weatherCode: dCodes.length > i ? (dCodes[i] as num).toInt() : 0,
+                weatherCode: (dCodes.length > i && dCodes[i] != null)
+                    ? (dCodes[i] as num).toInt()
+                    : 0,
                 maxTemp: maxT,
                 minTemp: minT,
-                precipitationSum: dPrecipSums.length > i ? (dPrecipSums[i] as num).toDouble() : 0.0,
+                precipitationSum: (dPrecipSums.length > i && dPrecipSums[i] != null)
+                    ? (dPrecipSums[i] as num).toDouble()
+                    : 0.0,
                 precipitationProbability: pop,
                 sunrise: sRise,
                 sunset: sSet,
-                uvIndex: dUvs.length > i ? (dUvs[i] as num).toDouble() : 0.0,
+                uvIndex: (dUvs.length > i && dUvs[i] != null)
+                    ? (dUvs[i] as num).toDouble()
+                    : 0.0,
               ));
             }
           }
@@ -624,33 +783,46 @@ class WeatherService {
           double currentUv = 0.0;
           double currentVisKm = 10.0;
           if (hourlyData != null) {
-            final List uvs = hourlyData['uv_index'] ?? [];
-            final List viss = hourlyData['visibility'] ?? [];
-            if (uvs.isNotEmpty) {
+            final List uvs = (hourlyData['uv_index'] is List)
+                ? hourlyData['uv_index']
+                : [];
+            final List viss = (hourlyData['visibility'] is List)
+                ? hourlyData['visibility']
+                : [];
+            if (uvs.isNotEmpty && uvs[0] != null) {
               currentUv = (uvs[0] as num).toDouble();
             }
-            if (viss.isNotEmpty) {
-              currentVisKm = ((viss[0] as num).toDouble() / 1000).clamp(0.1, 50.0);
+            if (viss.isNotEmpty && viss[0] != null) {
+              currentVisKm =
+                  ((viss[0] as num).toDouble() / 1000).clamp(0.1, 50.0);
             }
           }
 
           final weather = WeatherData(
-            temperature: (current['temperature_2m'] as num).toDouble(),
-            apparentTemperature: (current['apparent_temperature'] as num?)?.toDouble() ??
-                (current['temperature_2m'] as num).toDouble(),
-            humidity: (current['relative_humidity_2m'] as num).toInt(),
-            weatherCode: (current['weather_code'] as num).toInt(),
-            windSpeed: (current['wind_speed_10m'] as num).toDouble(),
-            windDirection: (current['wind_direction_10m'] as num?)?.toInt() ?? 0,
-            precipitation: (current['precipitation'] as num?)?.toDouble() ?? 0.0,
+            temperature:
+                (current['temperature_2m'] as num?)?.toDouble() ?? 0.0,
+            apparentTemperature:
+                (current['apparent_temperature'] as num?)?.toDouble() ??
+                    (current['temperature_2m'] as num?)?.toDouble() ??
+                    0.0,
+            humidity: (current['relative_humidity_2m'] as num?)?.toInt() ?? 0,
+            weatherCode: (current['weather_code'] as num?)?.toInt() ?? 0,
+            windSpeed: (current['wind_speed_10m'] as num?)?.toDouble() ?? 0.0,
+            windDirection:
+                (current['wind_direction_10m'] as num?)?.toInt() ?? 0,
+            precipitation:
+                (current['precipitation'] as num?)?.toDouble() ?? 0.0,
             rainProbability: maxPopToday,
-            uvIndex: currentUv > 0 ? currentUv : (dailyList.isNotEmpty ? dailyList[0].uvIndex : 0.0),
+            uvIndex: currentUv > 0
+                ? currentUv
+                : (dailyList.isNotEmpty ? dailyList[0].uvIndex : 0.0),
             visibility: currentVisKm,
             sunrise: sunriseToday,
             sunset: sunsetToday,
             minTempToday: minToday,
             maxTempToday: maxToday,
             locationName: displayLocation,
+            hasFarmerLocation: hasFarmerLocation,
             hourly: hourlyList,
             daily: dailyList,
           );

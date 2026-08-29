@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'weather_service.dart';
+import 'profile_page.dart';
 
 // ============================================================
 // COLORS - SAME STYLE AS DASHBOARD
@@ -220,6 +221,96 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
     );
   }
 
+  Widget _buildMissingLocationBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: cardColor2,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.amber.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.amber.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.location_off_rounded,
+              color: Colors.amberAccent,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Farm Location Not Configured',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Showing regional forecast for ${weather?.locationName.isNotEmpty == true ? weather!.locationName : "Maharashtra"}. Update your profile to get local farm weather.',
+                  style: const TextStyle(
+                    color: Color(0xFFB1B8A9),
+                    fontSize: 11.5,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ProfilePage(),
+                      ),
+                    ).then((_) => loadWeather());
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Set Location in Profile',
+                          style: TextStyle(
+                            color: primaryGreen,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(width: 4),
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          color: primaryGreen,
+                          size: 14,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildContent() {
     final w = weather!;
 
@@ -229,6 +320,9 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // If Firestore location was not configured, show guidance banner
+          if (!w.hasFarmerLocation) _buildMissingLocationBanner(),
+
           // ==================================================
           // 1. HERO WEATHER OVERVIEW
           // ==================================================
@@ -285,7 +379,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
         color: cardColor,
         borderRadius: BorderRadius.circular(26),
         border: Border.all(
-          color: primaryGreen.withOpacity(0.15),
+          color: primaryGreen.withValues(alpha: 0.15),
         ),
       ),
       child: Column(
@@ -345,12 +439,12 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      primaryGreen.withOpacity(0.20),
+                      primaryGreen.withValues(alpha: 0.20),
                       darkGreen,
                     ],
                   ),
                   border: Border.all(
-                    color: primaryGreen.withOpacity(0.35),
+                    color: primaryGreen.withValues(alpha: 0.35),
                     width: 2,
                   ),
                 ),
@@ -370,35 +464,40 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildMiniStat(
-                  icon: Icons.arrow_upward_rounded,
-                  iconColor: Colors.orangeAccent,
-                  label: 'High',
-                  value: '${w.maxTempToday.round()}°C',
+                Expanded(
+                  child: _buildMiniStat(
+                    icon: Icons.arrow_upward_rounded,
+                    iconColor: Colors.orangeAccent,
+                    label: 'High',
+                    value: '${w.maxTempToday.round()}°C',
+                  ),
                 ),
                 Container(
                   height: 25,
                   width: 1,
-                  color: Colors.white.withOpacity(0.08),
+                  color: Colors.white.withValues(alpha: 0.08),
                 ),
-                _buildMiniStat(
-                  icon: Icons.arrow_downward_rounded,
-                  iconColor: Colors.lightBlueAccent,
-                  label: 'Low',
-                  value: '${w.minTempToday.round()}°C',
+                Expanded(
+                  child: _buildMiniStat(
+                    icon: Icons.arrow_downward_rounded,
+                    iconColor: Colors.lightBlueAccent,
+                    label: 'Low',
+                    value: '${w.minTempToday.round()}°C',
+                  ),
                 ),
                 Container(
                   height: 25,
                   width: 1,
-                  color: Colors.white.withOpacity(0.08),
+                  color: Colors.white.withValues(alpha: 0.08),
                 ),
-                _buildMiniStat(
-                  icon: Icons.water_drop_outlined,
-                  iconColor: primaryGreen,
-                  label: 'Rain Chance',
-                  value: '${w.rainProbability}%',
+                Expanded(
+                  child: _buildMiniStat(
+                    icon: Icons.water_drop_outlined,
+                    iconColor: primaryGreen,
+                    label: 'Rain Chance',
+                    value: '${w.rainProbability}%',
+                  ),
                 ),
               ],
             ),
@@ -415,12 +514,14 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
     required String value,
   }) {
     return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(icon, color: iconColor, size: 16),
         const SizedBox(width: 6),
-        Expanded(
+        Flexible(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 label,
@@ -462,7 +563,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
         color: cardColor,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: primaryGreen.withOpacity(0.25),
+          color: primaryGreen.withValues(alpha: 0.25),
           width: 1.2,
         ),
       ),
@@ -511,22 +612,22 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
 
     switch (advice.type) {
       case AdviceType.good:
-        badgeColor = primaryGreen.withOpacity(0.15);
+        badgeColor = primaryGreen.withValues(alpha: 0.15);
         badgeTextColor = primaryGreen;
         badgeText = 'SUITABLE';
         break;
       case AdviceType.info:
-        badgeColor = Colors.blueAccent.withOpacity(0.15);
+        badgeColor = Colors.blueAccent.withValues(alpha: 0.15);
         badgeTextColor = Colors.lightBlueAccent;
         badgeText = 'NOTICE';
         break;
       case AdviceType.warning:
-        badgeColor = Colors.amber.withOpacity(0.18);
+        badgeColor = Colors.amber.withValues(alpha: 0.18);
         badgeTextColor = Colors.amberAccent;
         badgeText = 'CAUTION';
         break;
       case AdviceType.alert:
-        badgeColor = Colors.redAccent.withOpacity(0.18);
+        badgeColor = Colors.redAccent.withValues(alpha: 0.18);
         badgeTextColor = Colors.redAccent;
         badgeText = 'ALERT';
         break;
@@ -539,7 +640,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
         color: cardColor2,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: badgeTextColor.withOpacity(0.20),
+          color: badgeTextColor.withValues(alpha: 0.20),
         ),
       ),
       child: Row(
@@ -627,7 +728,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
         color: cardColor,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: primaryGreen.withOpacity(0.12),
+          color: primaryGreen.withValues(alpha: 0.12),
         ),
       ),
       child: Column(
@@ -674,7 +775,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
                     border: Border.all(
                       color: isNow
                           ? primaryGreen
-                          : Colors.white.withOpacity(0.04),
+                          : Colors.white.withValues(alpha: 0.04),
                     ),
                   ),
                   child: Column(
@@ -747,7 +848,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
         color: cardColor,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: primaryGreen.withOpacity(0.12),
+          color: primaryGreen.withValues(alpha: 0.12),
         ),
       ),
       child: Column(
@@ -782,7 +883,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
               decoration: BoxDecoration(
                 border: Border(
                   bottom: BorderSide(
-                    color: Colors.white.withOpacity(0.05),
+                    color: Colors.white.withValues(alpha: 0.05),
                   ),
                 ),
               ),
@@ -958,7 +1059,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
         color: cardColor,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: primaryGreen.withOpacity(0.10),
+          color: primaryGreen.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -1025,7 +1126,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
         color: cardColor,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
-          color: primaryGreen.withOpacity(0.12),
+          color: primaryGreen.withValues(alpha: 0.12),
         ),
       ),
       child: Row(
@@ -1036,7 +1137,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.15),
+                    color: Colors.orange.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: const Icon(
@@ -1079,7 +1180,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
           Container(
             height: 35,
             width: 1,
-            color: Colors.white.withOpacity(0.08),
+            color: Colors.white.withValues(alpha: 0.08),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1088,7 +1189,7 @@ class _DetailedWeatherPageState extends State<DetailedWeatherPage> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.purpleAccent.withOpacity(0.15),
+                    color: Colors.purpleAccent.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: const Icon(
